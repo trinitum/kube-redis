@@ -6,6 +6,7 @@ set -e
 hostname=`hostname`                                         # hostname of pod
 ip=${POD_IP-`hostname -i`}                                  # ip address of pod
 redis_port=${NODE_PORT_NUMBER-6379}                         # redis port
+redis_password=${REDIS_PASSWORD}
 sentinel_port=${SENTINEL_PORT_NUMBER-26379}                 # sentinel port
 group_name="$POD_NAMESPACE-$(hostname | sed 's/-[0-9]$//')" # master group name
 quorum="${SENTINEL_QUORUM-2}"                               # quorum needed
@@ -16,7 +17,7 @@ failover_timeout=${FAILOVER_TIMEOUT-$(($down_after_milliseconds * 10))}
 parallel_syncs=${PARALEL_SYNCS-1}
 
 # Get all the kubernetes pods
-labels=`echo $(cat /etc/pod-info/labels) | tr -d '"' | tr " " ","`
+labels=`echo $(cat /etc/pod-info/labels | grep -v ^role) | tr -d '"' | tr " " ","`
 
 # Retry a command until max tries is reached
 try_step_interval=${TRY_STEP_INTERVAL-"1"}
@@ -40,7 +41,7 @@ retry() {
 # Call the cli for the redis instance
 cli(){
   log DEBUG redis-cli -p $redis_port $@
-  retry timeout 5 redis-cli -p $redis_port $@
+  retry timeout 5 redis-cli -a $redis_password -p $redis_port $@
 }
 
 # Call the cli for the sentinel instance
@@ -83,6 +84,7 @@ sentinel-monitor() {
   host=$1
   sentinel-cli sentinel remove $group_name &> /dev/null
   sentinel-cli sentinel monitor $group_name $host $redis_port $quorum > /dev/null
+  sentinel-cli sentinel set $group_name auth-pass $redis_password
   sentinel-cli sentinel set $group_name down-after-milliseconds $down_after_milliseconds > /dev/null
   sentinel-cli sentinel set $group_name failover-timeout $failover_timeout > /dev/null
   sentinel-cli sentinel set $group_name parallel-syncs $parallel_syncs > /dev/null
